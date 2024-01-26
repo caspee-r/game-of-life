@@ -22,13 +22,9 @@ Generation Update:
 All cells are updated simultaneously in each generation.
 */
 
-#include <asm-generic/ioctls.h>
 #include <ncurses.h>
-//#include <panel.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <termios.h>
-#include <sys/ioctl.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -36,10 +32,6 @@ All cells are updated simultaneously in each generation.
 
 #define ALIVE_CELL_CHAR '#'
 #define DEAD_CELL_CHAR '.'
-
-#define WIDTH 30
-#define HEIGHT 80
-
 #define SPEED 500
 
 
@@ -48,13 +40,20 @@ typedef enum {
 	ALIVE,
 } State;
 
+typedef enum {
+	TOGGLEPAUSE = ' ',
+	QUIT = 'q',
+	RESTART = 'r',
+	NEXT = 'n',
+	PREV = 'p',
+}Actions;
+
 typedef struct {
 	State state;
 	// int neighbors;
 } Cell;
 
 
-struct termios originalTermios;
 
 void random_init(const int w, const int h, Cell grid[h][w]) {
 	int i, j;
@@ -140,28 +139,18 @@ void display(WINDOW* win,const int width, const  int height, const Cell grid[hei
 		}
 		wprintw(win,"\n");
 	}
+	box(win,0,0);
+	wrefresh(win);
 
 }
 
-
-
-void enableRawMode() {
-    struct termios raw;
-    tcgetattr(STDIN_FILENO, &raw);
-    raw.c_lflag &= ~(ECHO | ICANON);
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
-}
-
-
-void disableRawMode() {
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &originalTermios);
-}
-
-void get_terminal_size(int* rows, int* cols){
-	struct winsize ws;
-	ioctl(STDOUT_FILENO,TIOCGWINSZ,&ws);
-	*rows = ws.ws_row;
-	*cols = ws.ws_col;
+void reset_grid(const int width, const int height, Cell grid[height][width]){
+	Cell dead = {0};
+	for (size_t i = 0; i < height; i++){
+		for (size_t j = 0; j < width; j++){
+			grid[i][j] = dead;
+		}
+	}
 }
 
 WINDOW* create_container(int height, int width, int starty, int startx){
@@ -192,19 +181,38 @@ int main() {
 	cwin = newwin(wheight, wwidth, wstarty, wstartx);
 	random_init(gw, gh, grid);
 	init_pair(1, COLOR_CYAN, COLOR_BLACK);
+	nodelay(stdscr, TRUE);
 	refresh();
-	while (1) {
-		attron(A_BOLD | COLOR_PAIR(1));
-		mvprintw(1, wstartx, "Generation:%d",gen);
-		attroff(A_BOLD | COLOR_PAIR(1));
-		refresh();
-		display(cwin,gw, gh, grid,gen);
-		box(cwin,0,0);
-		wrefresh(cwin);
-		usleep(SPEED * 1000);
-		next_gen(gw, gh, grid);
-		wclear(cwin);
-		gen++;
+	int ch,is_paused;
+	is_paused = 0;
+	while ((ch = getch()) != QUIT ) {
+		switch (ch) {
+			case TOGGLEPAUSE:
+				is_paused = ~is_paused;
+				break;
+			case RESTART:
+				reset_grid(gw,gh,grid);
+				random_init(gw, gh, grid);
+				break;
+			case NEXT:
+				if (is_paused){
+					next_gen(gw, gh ,grid);
+					display(cwin,gw, gh, grid,gen);
+					wclear(cwin);
+				}
+		}
+		
+		if (is_paused == 0){
+			attron(A_BOLD | COLOR_PAIR(1));
+			mvprintw(1, wstartx, "Generation:%d",gen);
+			attroff(A_BOLD | COLOR_PAIR(1));
+			refresh();
+			display(cwin,gw, gh, grid,gen);
+			usleep(SPEED * 1000);
+			next_gen(gw, gh, grid);
+			wclear(cwin);
+			gen++;
+		}
 		//sleep(1);
 	}
 	endwin();
