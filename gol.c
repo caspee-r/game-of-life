@@ -28,15 +28,14 @@ All cells are updated simultaneously in each generation.
 #include <time.h>
 #include <unistd.h>
 
-#define CLEAR_CMD "\033[2J\033[H"
-
-#define ALIVE_CELL_CHAR '#'
+#define ALIVE_CELL_CHAR 'O'
 #define DEAD_CELL_CHAR '.'
-#define SPEED 500
+#define FPS 60
+#define STATUS_Y 1
 
 
 typedef enum {
-	DEAD,
+	DEAD = 0,
 	ALIVE,
 } State;
 
@@ -45,12 +44,10 @@ typedef enum {
 	QUIT = 'q',
 	RESTART = 'r',
 	NEXT = 'n',
-	PREV = 'p',
 } Actions;
 
 typedef struct {
 	State state;
-	// int neighbors;
 } Cell;
 
 void random_init(const int w, const int h, Cell grid[h][w]) {
@@ -58,11 +55,7 @@ void random_init(const int w, const int h, Cell grid[h][w]) {
 	srand(time(NULL));
 	for (i = 1; i < h; i = i + 2) {
 		for (j = 0; j < w; j++) {
-			if (rand() % 2 == 0 && rand() % 3 == 0) {
-				grid[i][j].state = ALIVE;
-				continue;
-			}
-			grid[i][j].state = DEAD;
+			grid[i][j].state = rand() % 2;
 		}
 	}
 }
@@ -91,7 +84,7 @@ void next_gen(const int w, const int h, Cell grid[h][w]) {
 				for (int l = -1; l <= 1; l++) {
 					if (k == 0 && l == 0)
 						continue; // cheking the main cell, but we want to check
-								  // the neighbors
+					// the neighbors
 					int row = (i + k) % h;
 					int col = (j + l) % w;
 					if (grid[row][col].state == ALIVE) {
@@ -100,18 +93,18 @@ void next_gen(const int w, const int h, Cell grid[h][w]) {
 				}
 			}
 			switch (alive_counter) {
-			case 0:
-			case 1:
-				next_grid[i][j].state = DEAD;
-				break;
-			case 2:
-				break;
-			case 3:
-				next_grid[i][j].state = ALIVE;
-				break;
-			default:
-				next_grid[i][j].state = DEAD;
-				break;
+				case 0:
+				case 1:
+					next_grid[i][j].state = DEAD;
+					break;
+				case 2:
+					break;
+				case 3:
+					next_grid[i][j].state = ALIVE;
+					break;
+				default:
+					next_grid[i][j].state = DEAD;
+					break;
 			}
 		}
 	}
@@ -123,7 +116,7 @@ void next_gen(const int w, const int h, Cell grid[h][w]) {
 }
 
 void display(WINDOW* win, const int width, const int height,
-			 const Cell grid[height][width], int gen) {
+			 const Cell grid[height][width]) {
 	// size_t padd = (*row - h)/ 2;
 	// wprintw(win,"\n");
 	int i, j;
@@ -143,17 +136,23 @@ void display(WINDOW* win, const int width, const int height,
 
 void reset_grid(const int width, const int height, Cell grid[height][width]) {
 	Cell dead = {0};
-	for (size_t i = 0; i < height; i++) {
-		for (size_t j = 0; j < width; j++) {
+	for (int i = 0; i < height; i++) {
+		for (int j = 0; j < width; j++) {
 			grid[i][j] = dead;
 		}
 	}
 }
 
+inline void display_status(int x ,int y, unsigned gen){
+	attron(A_BOLD | COLOR_PAIR(1));
+	mvprintw(y, x, "Generation:%d", gen);
+	attroff(A_BOLD | COLOR_PAIR(1));
+	refresh();
+}
+
 int main() {
 	WINDOW* cwin;
 	int wstartx, wstarty, wwidth, wheight;
-	int rows, cols;
 	initscr();
 	cbreak();
 	noecho();
@@ -167,7 +166,7 @@ int main() {
 	wstartx = (COLS - wwidth) / 2; /* of the window		*/
 	int gh = wheight - 1;
 	int gw = wwidth - 1;
-	int gen = 0;
+	unsigned gen = 0;
 	Cell grid[gh][gw];
 	cwin = newwin(wheight, wwidth, wstarty, wstartx);
 	random_init(gw, gh, grid);
@@ -177,44 +176,33 @@ int main() {
 	is_paused = 0;
 	while ((ch = getch()) != QUIT) {
 		switch (ch) {
-		case TOGGLEPAUSE:
-			is_paused = ~is_paused;
-			break;
-		case RESTART:
-			reset_grid(gw, gh, grid);
-			random_init(gw, gh, grid);
-			is_paused = 0;
-			break;
-		case NEXT:
-			if (is_paused) {
-				next_gen(gw, gh, grid);
-				display(cwin, gw, gh, grid, gen);
-				wclear(cwin);
-			}
-			break;
-		case PREV:
-			if (is_paused) {
-				prev_gen(gw, gh, grid);
-				display(cwin, gw, gh, grid, gen);
-				wclear(cwin);
-			}
-			break;
+			case TOGGLEPAUSE:
+				is_paused = ~is_paused;
+				break;
+			case RESTART:
+				reset_grid(gw, gh, grid);
+				random_init(gw, gh, grid);
+				is_paused = 0;
+				break;
+			case NEXT:
+				if (is_paused) {
+					next_gen(gw, gh, grid);
+					display_status(wstartx,STATUS_Y,gen);
+					display(cwin, gw, gh, grid);
+					wclear(cwin);
+					gen++;
+				}
+				break;
 		}
 
 		if (is_paused == 0) {
-#if (0)
-			attron(A_BOLD | COLOR_PAIR(1));
-			mvprintw(1, wstartx, "Generation:%d", gen);
-			attroff(A_BOLD | COLOR_PAIR(1));
-			refresh();
-#endif
-			display(cwin, gw, gh, grid, gen);
-			usleep(SPEED * 1000);
+			display_status(wstartx,STATUS_Y,gen);
+			display(cwin, gw, gh, grid );
 			next_gen(gw, gh, grid);
 			wclear(cwin);
 			gen++;
+			usleep(100*1000);
 		}
-		// sleep(1);
 	}
 	endwin();
 	return 0;
